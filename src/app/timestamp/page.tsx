@@ -57,7 +57,7 @@ export default function TimestampPage() {
     <div className="min-h-screen bg-gray-50">
       <Header />
       <main className="max-w-4xl mx-auto px-4 py-12">
-        <h2 className="text-2xl font-semibold mb-4">Timestamp a document</h2>
+        <h2 className="text-2xl font-semibold mb-4">Submit & Timestamp a document</h2>
 
         <DragDrop onFile={onFile} maxSizeBytes={10 * 1024 * 1024} />
 

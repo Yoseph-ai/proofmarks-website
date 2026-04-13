@@ -8,7 +8,7 @@ export default function Header() {
     <header className="w-full py-6 border-b bg-white/60 backdrop-blur-sm">
       <div className="max-w-5xl mx-auto px-4 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-3">
-          <div className="text-2xl font-semibold">Hedera Document Notary</div>
+          <div className="text-2xl font-semibold">Document Notary</div>
           <div className="text-sm text-gray-500">Immutable proof of existence</div>
         </Link>
 

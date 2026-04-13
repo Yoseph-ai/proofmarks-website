@@ -2,7 +2,7 @@ import "../styles/globals.css";
 import Header from "../components/Header";
 
 export const metadata = {
-  title: "Hedera Document Notary",
+  title: "Document Notary",
   description: "Immutable proof of existence for any file",
 };
 
