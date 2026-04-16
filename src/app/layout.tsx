@@ -2,8 +2,8 @@ import "../styles/globals.css";
 import Header from "../components/Header";
 
 export const metadata = {
-  title: "Document Notary",
-  description: "Immutable proof of existence for any file",
+  title: "Hedera Trust Anchor",
+  description: "Immutable proof for digital assets",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

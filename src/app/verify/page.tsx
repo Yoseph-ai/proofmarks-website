@@ -1,6 +1,5 @@
 "use client";
 import React, { useCallback, useState } from "react";
-import Header from "../../components/Header";
 import DragDrop from "../../components/DragDrop";
 
 function toHex(buffer: ArrayBuffer) {
@@ -51,8 +50,7 @@ export default function VerifyPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <Header />
-      <main className="max-w-4xl mx-auto px-4 py-12">
+       <main className="max-w-4xl mx-auto px-4 py-12">
         <h2 className="text-2xl font-semibold mb-4">Verify a document</h2>
 
         <DragDrop onFile={onFile} maxSizeBytes={10 * 1024 * 1024} />
