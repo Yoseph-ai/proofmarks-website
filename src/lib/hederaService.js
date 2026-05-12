@@ -12,6 +12,19 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+/**
+ * Custom error thrown when a duplicate hash is submitted.
+ * Includes the original submission details so the client can display them.
+ */
+export class DuplicateHashError extends Error {
+    constructor(message, timestamp, sequenceNumber) {
+        super(message);
+        this.name = 'DuplicateHashError';
+        this.timestamp = timestamp;
+        this.sequenceNumber = sequenceNumber;
+    }
+}
+
 // Lazy initialization to avoid throwing at import/build time.
 let accountId = null;
 let privateKey = null;
@@ -77,14 +90,20 @@ export async function submitHash(hashString) {
     }
 
     // --- Duplicate check (full topic scan, oldest first) ---
-    const existing = await verifyHash(hashString);
-    if (existing.exists) {
-        throw new Error(
-            `Duplicate hash: already submitted as sequence #${existing.sequenceNumber} ` +
-            `at ${existing.timestamp}. No new transaction created.`
-        );
-    }
-    // --- End duplicate check ---
+const existing = await verifyHash(hashString);
+if (existing.exists) {
+    const rawTimestamp = existing.timestamp; // e.g., "1776678768.000180000"
+    const [secondsStr, nanosStr = '0'] = rawTimestamp.split('.');
+    const seconds = parseInt(secondsStr, 10);
+    const date = new Date(seconds * 1000);
+    // Remove the milliseconds part added by toISOString(), then append full nanoseconds
+    const isoWithoutFraction = date.toISOString().replace(/\.\d+Z$/, 'Z'); // "2026-04-20T09:52:48Z"
+    const fullTimestamp = isoWithoutFraction.replace('Z', `.${nanosStr.padStart(9, '0')}Z`);
+
+    const msg = `Yoseph Says: Document already timestamped at ${fullTimestamp} (sequence #${existing.sequenceNumber}).`;
+    throw new DuplicateHashError(msg, rawTimestamp, existing.sequenceNumber);
+}
+// --- End duplicate check ---
 
     const transaction = await new TopicMessageSubmitTransaction()
         .setTopicId(topicId)
