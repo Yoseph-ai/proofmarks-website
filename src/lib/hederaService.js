@@ -66,6 +66,8 @@ export async function createTopic() {
 
 /**
  * Submit a SHA‑256 document hash to the HCS topic.
+ * Scans the entire topic (oldest→newest) for an existing hash before submitting.
+ * Throws if the hash already exists, including the original timestamp and sequence number.
  */
 export async function submitHash(hashString) {
     ensureInitialized();
@@ -73,6 +75,16 @@ export async function submitHash(hashString) {
     if (!topicId) {
         throw new Error("Topic ID not set. Call setTopicId() or define HEDERA_TOPIC_ID in .env.");
     }
+
+    // --- Duplicate check (full topic scan, oldest first) ---
+    const existing = await verifyHash(hashString);
+    if (existing.exists) {
+        throw new Error(
+            `Duplicate hash: already submitted as sequence #${existing.sequenceNumber} ` +
+            `at ${existing.timestamp}. No new transaction created.`
+        );
+    }
+    // --- End duplicate check ---
 
     const transaction = await new TopicMessageSubmitTransaction()
         .setTopicId(topicId)
@@ -87,43 +99,56 @@ export async function submitHash(hashString) {
         timestamp: receipt.consensusTimestamp?.toString() || new Date().toISOString()
     };
 }
-
-/**
- * Verify if a given hash exists on the topic by querying a Mirror Node.
+//**
+ * Verify if a given hash exists ANYWHERE in the topic by scanning ALL messages
+ * from the Mirror Node (oldest → newest). Returns the first (oldest) occurrence found.
  */
 export async function verifyHash(hashString) {
     if (!topicId) {
         throw new Error("Topic ID not set.");
     }
 
-    // network may not be initialized if env wasn't present at import — attempt to read network env
     const mirrorNodeUrl = (process.env.HEDERA_NETWORK || network) === "mainnet"
         ? "https://mainnet.mirrornode.hedera.com"
         : "https://testnet.mirrornode.hedera.com";
 
-    try {
-        const response = await fetch(
-            `${mirrorNodeUrl}/api/v1/topics/${topicId}/messages?limit=100&order=desc`
-        );
-        const data = await response.json();
+    const baseUrl = `${mirrorNodeUrl}/api/v1/topics/${topicId}/messages`;
+    const pageSize = 100;
+    // Start from the oldest message
+    let nextUrl = `${baseUrl}?limit=${pageSize}&order=asc`;
 
-        for (const msg of data.messages) {
-            const messageContent = Buffer.from(msg.message, 'base64').toString('utf8');
-            if (messageContent === hashString) {
-                return {
-                    exists: true,
-                    timestamp: msg.consensus_timestamp,
-                    sequenceNumber: msg.sequence_number
-                };
+    try {
+        while (nextUrl) {
+            const response = await fetch(nextUrl);
+            if (!response.ok) {
+                throw new Error(`Mirror Node returned status ${response.status}`);
             }
+            const data = await response.json();
+
+            for (const msg of data.messages) {
+                const messageContent = Buffer.from(msg.message, 'base64').toString('utf8');
+                if (messageContent === hashString) {
+                    // First match is the oldest because we're scanning asc
+                    return {
+                        exists: true,
+                        timestamp: msg.consensus_timestamp,
+                        sequenceNumber: msg.sequence_number
+                    };
+                }
+            }
+
+            // Follow the next link if it exists (absolute path from Mirror Node response)
+            nextUrl = data.links?.next ? `${mirrorNodeUrl}${data.links.next}` : null;
         }
+
+        // Scanned everything, hash not found
         return { exists: false, timestamp: null, sequenceNumber: null };
+
     } catch (error) {
         console.error("Mirror Node query failed:", error);
         throw new Error("Verification service temporarily unavailable.");
     }
 }
-
 /**
  * Manually set the topic ID.
  */
