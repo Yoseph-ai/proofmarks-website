@@ -55,7 +55,6 @@ export default function TimestampPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-
       <main className="max-w-4xl mx-auto px-4 py-12">
         <h2 className="text-2xl font-semibold mb-4">Submit & Timestamp a document</h2>
 
@@ -85,6 +84,14 @@ export default function TimestampPage() {
                 hash={result.hash}
                 transactionId={result.transactionId}
                 timestamp={result.timestamp}
+                // New enriched fields from the API
+                network={result.network}
+                mirrorNodeUrl={result.mirrorNodeUrl}
+                hashAlgorithm={result.hashAlgorithm}
+                submittedBy={result.submittedBy}
+                timestampIso={result.timestampIso}
+                certificateId={result.certificateId}
+                logoUrl={result.logoUrl}
               />
             </div>
           )}
