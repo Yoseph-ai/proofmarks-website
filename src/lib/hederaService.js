@@ -99,7 +99,8 @@ export async function submitHash(hashString) {
         timestamp: receipt.consensusTimestamp?.toString() || new Date().toISOString()
     };
 }
-//**
+
+/**
  * Verify if a given hash exists ANYWHERE in the topic by scanning ALL messages
  * from the Mirror Node (oldest → newest). Returns the first (oldest) occurrence found.
  */
@@ -149,6 +150,7 @@ export async function verifyHash(hashString) {
         throw new Error("Verification service temporarily unavailable.");
     }
 }
+
 /**
  * Manually set the topic ID.
  */
