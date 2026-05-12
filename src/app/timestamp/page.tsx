@@ -82,11 +82,18 @@ export default function TimestampPage() {
           height: qrSize,
         });
 
-        const stampedBytes = await pdfDoc.save();
-        const blob = new Blob([stampedBytes], { type: "application/pdf" });
-        const url = URL.createObjectURL(blob);
-        setStampedPdfUrl(url);
-      } catch (stampErr) {
+const stampedBytes = await pdfDoc.save();
+// Convert to a plain ArrayBuffer for TypeScript compatibility
+const arrayBuffer = stampedBytes.buffer.slice(
+  stampedBytes.byteOffset,
+  stampedBytes.byteOffset + stampedBytes.byteLength
+);
+const blob = new Blob([arrayBuffer], { type: "application/pdf" });
+const url = URL.createObjectURL(blob);
+setStampedPdfUrl(url);
+
+      } 
+      catch (stampErr) {
         console.error("QR stamping failed:", stampErr);
         setError("Document timestamped but QR stamping failed. You can still download the original.");
       } finally {
