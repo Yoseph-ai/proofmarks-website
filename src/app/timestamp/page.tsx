@@ -1,8 +1,9 @@
 "use client";
-import React, { useCallback, useState } from "react";
-
+import React, { useCallback, useRef, useState } from "react";
 import DragDrop from "../../components/DragDrop";
 import Certificate from "../../components/Certificate";
+import QRCode from "qrcode";
+import { PDFDocument } from "pdf-lib";
 
 function toHex(buffer: ArrayBuffer) {
   const bytes = new Uint8Array(buffer);
@@ -17,15 +18,21 @@ export default function TimestampPage() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<any | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [stampedPdfUrl, setStampedPdfUrl] = useState<string | null>(null);
+  const [stamping, setStamping] = useState(false);
+  // keep original file bytes for stamping later
+  const fileBytesRef = useRef<Uint8Array | null>(null);
 
   const onFile = useCallback(async (file: File) => {
     setError(null);
     setResult(null);
+    setStampedPdfUrl(null);
     setFileName(file.name);
 
     try {
       setHashing(true);
       const ab = await file.arrayBuffer();
+      fileBytesRef.current = new Uint8Array(ab.slice(0)); // copy bytes
       const digest = await crypto.subtle.digest("SHA-256", ab);
       const hex = toHex(digest);
       setHashing(false);
@@ -45,6 +52,46 @@ export default function TimestampPage() {
       }
 
       setResult({ ...data, hash: hex });
+
+      // --- Start QR + stamping process ---
+      setStamping(true);
+      try {
+        // Build the verification URL (public page we'll create soon)
+        const verificationUrl = `${window.location.origin}/verify/${data.certificateId}`;
+        // Generate QR code as a data URL (PNG)
+        const qrDataUrl = await QRCode.toDataURL(verificationUrl);
+
+        // Convert QR data URL to bytes (for pdf-lib)
+        const qrResponse = await fetch(qrDataUrl);
+        const qrImageBytes = await qrResponse.arrayBuffer();
+
+        // Load the original PDF
+        const pdfDoc = await PDFDocument.load(fileBytesRef.current!);
+        const pages = pdfDoc.getPages();
+        const firstPage = pages[0];
+        // Embed the QR image
+        const qrImage = await pdfDoc.embedPng(new Uint8Array(qrImageBytes));
+
+        // Place QR at bottom-right corner (adjust as needed)
+        const { width, height } = firstPage.getSize();
+        const qrSize = 80; // 80x80 points
+        firstPage.drawImage(qrImage, {
+          x: width - qrSize - 20,
+          y: 20,
+          width: qrSize,
+          height: qrSize,
+        });
+
+        const stampedBytes = await pdfDoc.save();
+        const blob = new Blob([stampedBytes], { type: "application/pdf" });
+        const url = URL.createObjectURL(blob);
+        setStampedPdfUrl(url);
+      } catch (stampErr) {
+        console.error("QR stamping failed:", stampErr);
+        setError("Document timestamped but QR stamping failed. You can still download the original.");
+      } finally {
+        setStamping(false);
+      }
     } catch (err: any) {
       console.error(err);
       setHashing(false);
@@ -75,6 +122,10 @@ export default function TimestampPage() {
             <div className="text-sm text-gray-600 mt-3">Submitting to Hedera, please wait…</div>
           )}
 
+          {stamping && (
+            <div className="text-sm text-gray-600 mt-3">Stamping QR code onto PDF…</div>
+          )}
+
           {error && <div className="text-sm text-red-600 mt-3">{error}</div>}
 
           {result && (
@@ -84,7 +135,6 @@ export default function TimestampPage() {
                 hash={result.hash}
                 transactionId={result.transactionId}
                 timestamp={result.timestamp}
-                // New enriched fields from the API
                 network={result.network}
                 mirrorNodeUrl={result.mirrorNodeUrl}
                 hashAlgorithm={result.hashAlgorithm}
@@ -93,6 +143,18 @@ export default function TimestampPage() {
                 certificateId={result.certificateId}
                 logoUrl={result.logoUrl}
               />
+
+              {stampedPdfUrl && (
+                <div className="mt-4">
+                  <a
+                    href={stampedPdfUrl}
+                    download={`${fileName || "document"}_stamped.pdf`}
+                    className="inline-block rounded bg-emerald-700 px-4 py-2 text-white text-sm hover:bg-emerald-800 transition"
+                  >
+                    ⬇ Download QR‑stamped PDF
+                  </a>
+                </div>
+              )}
             </div>
           )}
         </div>
