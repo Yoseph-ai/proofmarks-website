@@ -81,6 +81,7 @@ export async function createTopic() {
  * Submit a SHA‑256 document hash to the HCS topic.
  * Scans the entire topic (oldest→newest) for an existing hash before submitting.
  * Throws if the hash already exists, including the original timestamp and sequence number.
+ * Returns an enriched certificate object.
  */
 export async function submitHash(hashString) {
     ensureInitialized();
@@ -90,20 +91,20 @@ export async function submitHash(hashString) {
     }
 
     // --- Duplicate check (full topic scan, oldest first) ---
-const existing = await verifyHash(hashString);
-if (existing.exists) {
-    const rawTimestamp = existing.timestamp; // e.g., "1776678768.000180000"
-    const [secondsStr, nanosStr = '0'] = rawTimestamp.split('.');
-    const seconds = parseInt(secondsStr, 10);
-    const date = new Date(seconds * 1000);
-    // Remove the milliseconds part added by toISOString(), then append full nanoseconds
-    const isoWithoutFraction = date.toISOString().replace(/\.\d+Z$/, 'Z'); // "2026-04-20T09:52:48Z"
-    const fullTimestamp = isoWithoutFraction.replace('Z', `.${nanosStr.padStart(9, '0')}Z`);
+    const existing = await verifyHash(hashString);
+    if (existing.exists) {
+        const rawTimestamp = existing.timestamp; // e.g., "1776678768.000180000"
+        const [secondsStr, nanosStr = '0'] = rawTimestamp.split('.');
+        const seconds = parseInt(secondsStr, 10);
+        const date = new Date(seconds * 1000);
+        // Build ISO timestamp with full nanos
+        const isoWithoutFraction = date.toISOString().replace(/\.\d+Z$/, 'Z');
+        const fullTimestamp = isoWithoutFraction.replace('Z', `.${nanosStr.padStart(9, '0')}Z`);
 
-    const msg = `Yoseph Says: Document already timestamped at ${fullTimestamp} (sequence #${existing.sequenceNumber}).`;
-    throw new DuplicateHashError(msg, rawTimestamp, existing.sequenceNumber);
-}
-// --- End duplicate check ---
+        const msg = `Document already timestamped at ${fullTimestamp} (sequence #${existing.sequenceNumber}).`;
+        throw new DuplicateHashError(msg, rawTimestamp, existing.sequenceNumber);
+    }
+    // --- End duplicate check ---
 
     const transaction = await new TopicMessageSubmitTransaction()
         .setTopicId(topicId)
@@ -111,17 +112,53 @@ if (existing.exists) {
         .execute(client);
 
     const receipt = await transaction.getReceipt(client);
+
+    // Raw consensus timestamp from the receipt (seconds.nanoseconds)
+    const rawTimestamp = receipt.consensusTimestamp?.toString() || new Date().toISOString();
+
+    // Convert to ISO string with nanos preserved
+    let timestampIso = null;
+    if (receipt.consensusTimestamp) {
+        const ts = receipt.consensusTimestamp;
+        const secondsNum = typeof ts.seconds === 'object' ? ts.seconds.toNumber() : ts.seconds;
+        const nanosNum = typeof ts.nanos === 'object' ? ts.nanos.toNumber() : ts.nanos;
+        const millis = secondsNum * 1000 + Math.floor(nanosNum / 1_000_000);
+        const date = new Date(millis);
+        const isoBase = date.toISOString().replace(/\.\d+Z$/, 'Z');
+        const nanosPadded = String(nanosNum).padStart(9, '0');
+        timestampIso = isoBase.replace('Z', `.${nanosPadded}Z`);
+    } else {
+        timestampIso = rawTimestamp; // fallback if no consensus timestamp
+    }
+
+    // Mirror node base URL (same logic as verifyHash)
+    const mirrorNodeUrl = (network || process.env.HEDERA_NETWORK) === "mainnet"
+        ? "https://mainnet.mirrornode.hedera.com"
+        : "https://testnet.mirrornode.hedera.com";
+
     return {
+        // Legacy fields
         topicId: topicId,
         sequenceNumber: receipt.topicSequenceNumber.toString(),
         transactionId: transaction.transactionId.toString(),
-        timestamp: receipt.consensusTimestamp?.toString() || new Date().toISOString()
+        timestamp: rawTimestamp,               // raw "seconds.nanoseconds" string
+
+        // New enrichment fields
+        network: network || process.env.HEDERA_NETWORK,
+        mirrorNodeUrl: mirrorNodeUrl,
+        hashAlgorithm: "SHA-256",
+        submittedBy: accountId.toString(),
+        timestampIso: timestampIso,
+        logoUrl: process.env.LOGO_URL || null,
+        // Verification hint: combination of topic & sequence
+        certificateId: `${topicId}@${receipt.topicSequenceNumber}`
     };
 }
 
 /**
  * Verify if a given hash exists ANYWHERE in the topic by scanning ALL messages
- * from the Mirror Node (oldest → newest). Returns the first (oldest) occurrence found.
+ * from the Mirror Node (oldest → newest). Returns the first (oldest) occurrence found,
+ * plus minimal supplementary fields for independent verification.
  */
 export async function verifyHash(hashString) {
     if (!topicId) {
@@ -148,11 +185,15 @@ export async function verifyHash(hashString) {
             for (const msg of data.messages) {
                 const messageContent = Buffer.from(msg.message, 'base64').toString('utf8');
                 if (messageContent === hashString) {
-                    // First match is the oldest because we're scanning asc
+                    const networkName = process.env.HEDERA_NETWORK || network || 'testnet';
                     return {
                         exists: true,
-                        timestamp: msg.consensus_timestamp,
-                        sequenceNumber: msg.sequence_number
+                        timestamp: msg.consensus_timestamp,       // raw seconds.nanoseconds
+                        sequenceNumber: msg.sequence_number,
+                        // Minimal enrichment for direct verification
+                        network: networkName,
+                        mirrorNodeUrl: mirrorNodeUrl,
+                        certificateId: `${topicId}@${msg.sequence_number}`
                     };
                 }
             }
