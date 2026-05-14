@@ -1,5 +1,6 @@
 "use client";
 import React, { useCallback, useState } from "react";
+import { useRouter } from "next/navigation";
 import DragDrop from "../../components/DragDrop";
 
 function toHex(buffer: ArrayBuffer) {
@@ -9,7 +10,6 @@ function toHex(buffer: ArrayBuffer) {
     .join("");
 }
 
-/** Convert a raw seconds.nanoseconds timestamp to ISO 8601 with full nanos. */
 function formatTimestamp(rawTimestamp: string): string {
   if (!rawTimestamp) return "N/A";
   const [secondsStr, nanosStr = "0"] = rawTimestamp.split(".");
@@ -20,24 +20,30 @@ function formatTimestamp(rawTimestamp: string): string {
 }
 
 export default function VerifyPage() {
+  const router = useRouter();
   const [hashing, setHashing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [certIdInput, setCertIdInput] = useState("");
+
+  const handleCertIdLookup = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = certIdInput.trim();
+    if (trimmed) router.push(`/verify/${trimmed}`);
+  };
 
   const onFile = useCallback(async (file: File) => {
     setError(null);
     setResult(null);
     try {
       setHashing(true);
-      // 1. RE-HASH: Compute the hash of the file currently in the user's hand
       const ab = await file.arrayBuffer();
       const digest = await crypto.subtle.digest("SHA-256", ab);
       const hex = toHex(digest);
       setHashing(false);
 
       setLoading(true);
-      // 2. COMPARISON: Send this hash to the API to see if it matches the ledger
       const res = await fetch("/api/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -51,7 +57,6 @@ export default function VerifyPage() {
         return;
       }
 
-      // Merge API response with the local hash and file name
       setResult({ ...data, hash: hex, fileName: file.name });
     } catch (err: any) {
       console.error(err);
@@ -96,88 +101,89 @@ export default function VerifyPage() {
             {result && (
               <div className="mt-8">
                 {result.exists ? (
-                  // --- MATCH FOUND: show the formal certificate ---
-                  <div className="max-w-2xl mx-auto bg-white border-2 border-emerald-700 p-8 shadow-lg">
-                    {/* Double border effect (matching the PDF) */}
-                    <div className="border border-emerald-200 p-6">
-                      {/* Logo */}
-                      <div className="flex justify-center mb-6">
-                        <img
-                          src="/yes-logo.png"
-                          alt="Hedera Trust Anchor"
-                          className="h-16"
-                        />
+                  <div className="p-6 rounded-lg bg-emerald-50 border-2 border-emerald-500 text-emerald-900 shadow-inner">
+                    <div className="flex flex-col items-center text-center mb-6">
+                      <img src="/yes-logo.png" alt="YES Financial Solutions" className="h-16 mb-4" />
+                      <div className="text-2xl font-bold flex items-center gap-2">
+                        <span>✅</span> AUTHENTICITY VERIFIED
                       </div>
-
-                      {/* Title */}
-                      <h1 className="text-xl font-bold text-center text-gray-900 mb-8">
-                        CERTIFICATE OF DIGITAL AUTHENTICITY
-                      </h1>
-
-                      {/* Data grid – matching the PDF fields */}
-                      <div className="space-y-3 text-sm">
-                        <div className="flex">
-                          <span className="font-bold w-40 text-gray-600">File Name:</span>
-                          <span className="font-medium">{result.fileName}</span>
-                        </div>
-                        <div className="flex">
-                          <span className="font-bold w-40 text-gray-600">Algorithm:</span>
-                          <span>SHA-256</span>
-                        </div>
-                        {result.network && (
-                          <div className="flex">
-                            <span className="font-bold w-40 text-gray-600">Network:</span>
-                            <span className="capitalize">{result.network}</span>
-                          </div>
-                        )}
-                        <div className="flex">
-                          <span className="font-bold w-40 text-gray-600">Certificate ID:</span>
-                          <span className="font-mono text-xs">{result.certificateId}</span>
-                        </div>
-                        {result.sequenceNumber && (
-                          <div className="flex">
-                            <span className="font-bold w-40 text-gray-600">Sequence:</span>
-                            <span>{result.sequenceNumber}</span>
-                          </div>
-                        )}
-                        {result.timestamp && (
-                          <div className="flex">
-                            <span className="font-bold w-40 text-gray-600">Timestamp (UTC):</span>
-                            <span className="text-xs">{formatTimestamp(result.timestamp)}</span>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Cryptographic Hash – single line */}
-                      <div className="mt-6">
-                        <p className="font-bold text-gray-600 text-sm">
-                          Cryptographic Hash (SHA-256):
-                        </p>
-                        <p className="font-mono text-xs text-gray-500 mt-1 break-all">
-                          {result.hash}
-                        </p>
-                      </div>
-
-                      {/* Independent Verification Link */}
-                      {result.mirrorNodeUrl && result.certificateId && (
-                        <div className="mt-6 pt-4 border-t text-center">
-                          <p className="font-bold text-xs text-gray-600 mb-1">
-                            Verify Independently:
-                          </p>
-                          <p className="text-xs text-blue-700 break-all">
-                            {`${result.mirrorNodeUrl}/api/v1/topics/${result.certificateId.replace('@', '/messages/')}`}
-                          </p>
-                        </div>
-                      )}
-
-                      {/* Footer */}
-                      <p className="text-center text-xs text-gray-400 mt-6">
-                        This document serves as a detached proof of existence. The original asset remains unaltered.
+                      <p className="text-emerald-700 text-sm mt-1">
+                        The uploaded file matches the immutable record anchored on the Hedera network.
                       </p>
                     </div>
+
+                    <dl className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                      <div className="bg-white p-3 rounded border border-emerald-200">
+                        <dt className="text-emerald-700 font-bold uppercase text-xs">Original File</dt>
+                        <dd className="text-gray-900 font-medium">{result.fileName}</dd>
+                      </div>
+                      <div className="bg-white p-3 rounded border border-emerald-200">
+                        <dt className="text-emerald-700 font-bold uppercase text-xs">Hashing Algorithm</dt>
+                        <dd className="text-gray-900 font-medium">SHA-256</dd>
+                      </div>
+                      <div className="bg-white p-3 rounded border border-emerald-200">
+                        <dt className="text-emerald-700 font-bold uppercase text-xs">Network</dt>
+                        <dd className="text-gray-900 font-medium capitalize">{result.network}</dd>
+                      </div>
+                      <div className="bg-white p-3 rounded border border-emerald-200">
+                        <dt className="text-emerald-700 font-bold uppercase text-xs">Certificate ID</dt>
+                        <dd className="text-gray-900 font-mono text-xs">{result.certificateId}</dd>
+                      </div>
+                      <div className="bg-white p-3 rounded border border-emerald-200">
+                        <dt className="text-emerald-700 font-bold uppercase text-xs">Sequence Number</dt>
+                        <dd className="text-gray-900 font-medium">{result.sequenceNumber}</dd>
+                      </div>
+                      {result.transactionId && (
+                        <div className="bg-white p-3 rounded border border-emerald-200">
+                          <dt className="text-emerald-700 font-bold uppercase text-xs">Hedera Transaction</dt>
+                          <dd>
+                            <a
+                              className="text-emerald-700 underline text-xs font-mono"
+                              target="_blank"
+                              rel="noreferrer"
+                              href={`https://hashscan.io/${result.network || "testnet"}/transaction/${encodeURIComponent(result.transactionId)}`}
+                            >
+                              {result.transactionId}
+                            </a>
+                          </dd>
+                        </div>
+                      )}
+                      <div className="bg-white p-3 rounded border border-emerald-200">
+                        <dt className="text-emerald-700 font-bold uppercase text-xs">Consensus Timestamp</dt>
+                        <dd className="text-gray-900 text-xs font-mono">
+                          {formatTimestamp(result.timestamp)}
+                        </dd>
+                      </div>
+                    </dl>
+
+                    {result.timestamp && (
+                      <div className="mt-2 text-center text-xs text-gray-500">
+                        Raw consensus timestamp: {result.timestamp}
+                      </div>
+                    )}
+
+                    <div className="mt-6 p-4 bg-white rounded border border-emerald-200">
+                      <dt className="text-emerald-700 font-bold uppercase text-xs mb-2">Verified Fingerprint (Hash)</dt>
+                      <dd className="font-mono text-xs break-all text-gray-600">
+                        {result.hash}
+                      </dd>
+                    </div>
+
+                    {result.mirrorNodeUrl && result.certificateId && (
+                      <div className="mt-6 pt-4 border-t border-emerald-200 text-center">
+                        <p className="text-xs text-emerald-700 font-medium mb-2">Verify this record independently on the Hedera Mirror Node:</p>
+                        <a
+                          className="text-emerald-600 underline text-xs break-all hover:text-emerald-800 transition"
+                          target="_blank"
+                          rel="noreferrer"
+                          href={`${result.mirrorNodeUrl}/api/v1/topics/${result.certificateId.replace('@', '/messages/')}`}
+                        >
+                          {`${result.mirrorNodeUrl}/api/v1/topics/${result.certificateId.replace('@', '/messages/')}`}
+                        </a>
+                      </div>
+                    )}
                   </div>
                 ) : (
-                  // --- NO MATCH: show failure ---
                   <div className="p-6 rounded-lg bg-rose-50 border-2 border-rose-500 text-rose-900 text-center shadow-inner">
                     <div className="text-3xl mb-2">❌</div>
                     <div className="text-xl font-bold">Verification Failed</div>
@@ -188,6 +194,27 @@ export default function VerifyPage() {
                 )}
               </div>
             )}
+          </div>
+
+          <div className="mt-10 pt-6 border-t text-center">
+            <p className="text-sm text-gray-600 mb-3">
+              Already have a Certificate ID? Enter it below to view the certificate details.
+            </p>
+            <form onSubmit={handleCertIdLookup} className="flex justify-center gap-2">
+              <input
+                type="text"
+                value={certIdInput}
+                onChange={(e) => setCertIdInput(e.target.value)}
+                placeholder="e.g. 0.0.8626999@6"
+                className="border rounded px-3 py-2 text-sm w-64 font-mono"
+              />
+              <button
+                type="submit"
+                className="rounded bg-emerald-700 px-4 py-2 text-white text-sm hover:bg-emerald-800 transition"
+              >
+                View Certificate
+              </button>
+            </form>
           </div>
         </div>
       </main>
