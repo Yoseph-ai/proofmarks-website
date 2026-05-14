@@ -11,6 +11,7 @@ function toHex(buffer: ArrayBuffer) {
 
 /** Convert a raw seconds.nanoseconds timestamp to ISO 8601 with full nanos. */
 function formatTimestamp(rawTimestamp: string): string {
+  if (!rawTimestamp) return "N/A";
   const [secondsStr, nanosStr = "0"] = rawTimestamp.split(".");
   const seconds = parseInt(secondsStr, 10);
   const date = new Date(seconds * 1000);
@@ -29,12 +30,14 @@ export default function VerifyPage() {
     setResult(null);
     try {
       setHashing(true);
+      // 1. RE-HASH: Compute the hash of the file currently in the user's hand
       const ab = await file.arrayBuffer();
       const digest = await crypto.subtle.digest("SHA-256", ab);
       const hex = toHex(digest);
       setHashing(false);
 
       setLoading(true);
+      // 2. COMPARISON: Send this hash to the API to see if it matches the ledger
       const res = await fetch("/api/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -61,102 +64,131 @@ export default function VerifyPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <main className="max-w-4xl mx-auto px-4 py-12">
-        <h2 className="text-2xl font-semibold mb-4">Verify a document</h2>
+        <div className="text-center mb-8">
+          <h2 className="text-3xl font-bold text-gray-900">Document Verification Portal</h2>
+          <p className="text-gray-600 mt-2">
+            Upload the document to verify its authenticity against the Hedera immutable ledger.
+          </p>
+        </div>
 
-        <DragDrop onFile={onFile} maxSizeBytes={10 * 1024 * 1024} />
+        <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-200">
+          <DragDrop onFile={onFile} maxSizeBytes={10 * 1024 * 1024} />
 
-        <div className="mt-6">
-          {hashing && <div className="text-sm text-gray-600">Computing SHA‑256…</div>}
-          {loading && <div className="text-sm text-gray-600">Checking Hedera…</div>}
-          {error && <div className="text-sm text-red-600">{error}</div>}
+          <div className="mt-6">
+            {hashing && (
+              <div className="flex items-center justify-center gap-3 text-sm text-gray-600 animate-pulse">
+                <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full" />
+                Computing local SHA-256 fingerprint...
+              </div>
+            )}
+            {loading && (
+              <div className="flex items-center justify-center gap-3 text-sm text-gray-600 animate-pulse">
+                <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full" />
+                Comparing fingerprint with Hedera Mirror Node...
+              </div>
+            )}
+            {error && (
+              <div className="p-3 rounded bg-rose-50 border border-rose-200 text-rose-600 text-center text-sm">
+                {error}
+              </div>
+            )}
 
-          {result && (
-            <div className="mt-4">
-              {result.exists ? (
-                <div className="p-4 rounded bg-emerald-50 border border-emerald-200 text-emerald-800">
-                  {/* Logo (static, always present) */}
-                  <div className="flex justify-center mb-2">
-                    <img src="/yes-logo.png" alt="Hedera Trust Anchor" className="h-12" />
-                  </div>
-
-                  <p className="font-semibold text-base">✅ Verified on Hedera</p>
-
-                  <dl className="mt-3 grid grid-cols-1 gap-2 text-sm text-emerald-900">
-                    {/* File name */}
-                    {result.fileName && (
-                      <div>
-                        <dt className="text-emerald-700 font-medium">File</dt>
-                        <dd>{result.fileName}</dd>
+            {result && (
+              <div className="mt-8">
+                {result.exists ? (
+                  // --- MATCH FOUND: show the formal certificate ---
+                  <div className="max-w-2xl mx-auto bg-white border-2 border-emerald-700 p-8 shadow-lg">
+                    {/* Double border effect (matching the PDF) */}
+                    <div className="border border-emerald-200 p-6">
+                      {/* Logo */}
+                      <div className="flex justify-center mb-6">
+                        <img
+                          src="/yes-logo.png"
+                          alt="Hedera Trust Anchor"
+                          className="h-16"
+                        />
                       </div>
-                    )}
 
-                    {/* Hash algorithm */}
-                    <div>
-                      <dt className="text-emerald-700 font-medium">Algorithm</dt>
-                      <dd>SHA‑256</dd>
-                    </div>
+                      {/* Title */}
+                      <h1 className="text-xl font-bold text-center text-gray-900 mb-8">
+                        CERTIFICATE OF DIGITAL AUTHENTICITY
+                      </h1>
 
-                    {/* Network */}
-                    {result.network && (
-                      <div>
-                        <dt className="text-emerald-700 font-medium">Network</dt>
-                        <dd className="capitalize">{result.network}</dd>
+                      {/* Data grid – matching the PDF fields */}
+                      <div className="space-y-3 text-sm">
+                        <div className="flex">
+                          <span className="font-bold w-40 text-gray-600">File Name:</span>
+                          <span className="font-medium">{result.fileName}</span>
+                        </div>
+                        <div className="flex">
+                          <span className="font-bold w-40 text-gray-600">Algorithm:</span>
+                          <span>SHA-256</span>
+                        </div>
+                        {result.network && (
+                          <div className="flex">
+                            <span className="font-bold w-40 text-gray-600">Network:</span>
+                            <span className="capitalize">{result.network}</span>
+                          </div>
+                        )}
+                        <div className="flex">
+                          <span className="font-bold w-40 text-gray-600">Certificate ID:</span>
+                          <span className="font-mono text-xs">{result.certificateId}</span>
+                        </div>
+                        {result.sequenceNumber && (
+                          <div className="flex">
+                            <span className="font-bold w-40 text-gray-600">Sequence:</span>
+                            <span>{result.sequenceNumber}</span>
+                          </div>
+                        )}
+                        {result.timestamp && (
+                          <div className="flex">
+                            <span className="font-bold w-40 text-gray-600">Timestamp (UTC):</span>
+                            <span className="text-xs">{formatTimestamp(result.timestamp)}</span>
+                          </div>
+                        )}
                       </div>
-                    )}
 
-                    {/* Certificate ID */}
-                    {result.certificateId && (
-                      <div>
-                        <dt className="text-emerald-700 font-medium">Certificate ID</dt>
-                        <dd className="font-mono text-xs">{result.certificateId}</dd>
+                      {/* Cryptographic Hash – single line */}
+                      <div className="mt-6">
+                        <p className="font-bold text-gray-600 text-sm">
+                          Cryptographic Hash (SHA-256):
+                        </p>
+                        <p className="font-mono text-xs text-gray-500 mt-1 break-all">
+                          {result.hash}
+                        </p>
                       </div>
-                    )}
 
-                    {/* Sequence */}
-                    <div>
-                      <dt className="text-emerald-700 font-medium">Sequence</dt>
-                      <dd>{result.sequenceNumber}</dd>
-                    </div>
-
-                    {/* Human‑readable timestamp with full nanos */}
-                    {result.timestamp && (
-                      <div>
-                        <dt className="text-emerald-700 font-medium">Timestamp (UTC)</dt>
-                        <dd className="text-xs">{formatTimestamp(result.timestamp)}</dd>
-                      </div>
-                    )}
-
-                    {/* Hash */}
-                    <div>
-                      <dt className="text-emerald-700 font-medium">Hash</dt>
-                      <dd className="font-mono text-xs break-words">{result.hash}</dd>
-                    </div>
-
-                    {/* Direct Mirror Node link */}
-                    {result.mirrorNodeUrl && result.certificateId && (
-                      <div className="mt-2 pt-2 border-t border-emerald-200">
-                        <dt className="text-emerald-700 font-medium">Verify independently</dt>
-                        <dd>
-                          <a
-                            className="text-emerald-600 underline text-xs break-all"
-                            target="_blank"
-                            rel="noreferrer"
-                            href={`${result.mirrorNodeUrl}/api/v1/topics/${result.certificateId.replace('@', '/messages/')}`}
-                          >
+                      {/* Independent Verification Link */}
+                      {result.mirrorNodeUrl && result.certificateId && (
+                        <div className="mt-6 pt-4 border-t text-center">
+                          <p className="font-bold text-xs text-gray-600 mb-1">
+                            Verify Independently:
+                          </p>
+                          <p className="text-xs text-blue-700 break-all">
                             {`${result.mirrorNodeUrl}/api/v1/topics/${result.certificateId.replace('@', '/messages/')}`}
-                          </a>
-                        </dd>
-                      </div>
-                    )}
-                  </dl>
-                </div>
-              ) : (
-                <div className="p-4 rounded bg-rose-50 border border-rose-200 text-rose-800">
-                  ❌ Not found on Hedera
-                </div>
-              )}
-            </div>
-          )}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Footer */}
+                      <p className="text-center text-xs text-gray-400 mt-6">
+                        This document serves as a detached proof of existence. The original asset remains unaltered.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  // --- NO MATCH: show failure ---
+                  <div className="p-6 rounded-lg bg-rose-50 border-2 border-rose-500 text-rose-900 text-center shadow-inner">
+                    <div className="text-3xl mb-2">❌</div>
+                    <div className="text-xl font-bold">Verification Failed</div>
+                    <p className="text-sm mt-1">
+                      This file does not match any anchored record on the Hedera network. It may have been altered or was never timestamped.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </main>
     </div>

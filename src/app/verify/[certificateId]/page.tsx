@@ -29,59 +29,121 @@ export default function CertificateVerificationPage() {
     })();
   }, [certificateId]);
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <p className="text-gray-500">Loading certificate…</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="bg-white border rounded p-8 shadow text-center">
+          <p className="text-red-600 font-semibold">{error}</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Extract data (same fields returned by /api/certificate)
+  const {
+    hash,
+    timestampIso,
+    network,
+    topicId,
+    sequenceNumber,
+    mirrorNodeUrl,
+    fileName,
+    timestamp,
+  } = data;
+
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="max-w-2xl w-full bg-white border rounded-lg p-6 shadow">
-        {loading && (
-          <div className="text-center text-gray-500">Loading certificate…</div>
-        )}
-        {error && (
-          <div className="text-center text-red-600">{error}</div>
-        )}
-        {data && (
-          <>
-            <div className="flex justify-center mb-4">
-              <img src="/yes-logo.png" alt="Hedera Trust Anchor" className="h-16" />
-            </div>
-            <h2 className="text-xl font-semibold text-center mb-4">✅ Verified on Hedera</h2>
+      <div className="max-w-2xl w-full bg-white border-2 border-blue-800 p-8 shadow-lg">
+        {/* Double border effect (mimicking the PDF) */}
+        <div className="border border-gray-300 p-6">
+          {/* Logo */}
+          <div className="flex justify-center mb-6">
+            <img
+              src="/yes-logo.png"
+              alt="Hedera Trust Anchor"
+              className="h-16"
+            />
+          </div>
 
-            <dl className="grid grid-cols-1 gap-3 text-sm">
-              <div>
-                <dt className="text-gray-600 font-medium">Certificate ID</dt>
-                <dd className="font-mono text-xs">{data.certificateId}</dd>
+          {/* Title */}
+          <h1 className="text-xl font-bold text-center text-gray-900 mb-8">
+            CERTIFICATE OF DIGITAL AUTHENTICITY
+          </h1>
+
+          {/* Data grid – matching the PDF fields */}
+          <div className="space-y-3 text-sm">
+            {fileName && (
+              <div className="flex">
+                <span className="font-bold w-40 text-gray-600">File Name:</span>
+                <span className="font-medium">{fileName}</span>
               </div>
-              {data.network && (
-                <div>
-                  <dt className="text-gray-600">Network</dt>
-                  <dd className="capitalize">{data.network}</dd>
-                </div>
-              )}
-              <div>
-                <dt className="text-gray-600">Hash (SHA‑256)</dt>
-                <dd className="font-mono text-xs break-all">{data.hash}</dd>
+            )}
+            <div className="flex">
+              <span className="font-bold w-40 text-gray-600">Algorithm:</span>
+              <span>SHA-256</span>
+            </div>
+            {network && (
+              <div className="flex">
+                <span className="font-bold w-40 text-gray-600">Network:</span>
+                <span className="capitalize">{network}</span>
               </div>
-              {data.timestampIso && (
-                <div>
-                  <dt className="text-gray-600">Timestamp (UTC)</dt>
-                  <dd className="text-xs">{data.timestampIso}</dd>
-                </div>
-              )}
-              <div className="mt-2 pt-2 border-t">
-                <dt className="text-gray-600">Verify independently</dt>
-                <dd>
-                  <a
-                    className="text-emerald-700 underline text-xs break-all"
-                    target="_blank"
-                    rel="noreferrer"
-                    href={`${data.mirrorNodeUrl}/api/v1/topics/${data.topicId}/messages/${data.sequenceNumber}`}
-                  >
-                    {`${data.mirrorNodeUrl}/api/v1/topics/${data.topicId}/messages/${data.sequenceNumber}`}
-                  </a>
-                </dd>
+            )}
+            <div className="flex">
+              <span className="font-bold w-40 text-gray-600">Certificate ID:</span>
+              <span className="font-mono text-xs">{certificateId}</span>
+            </div>
+            {sequenceNumber && (
+              <div className="flex">
+                <span className="font-bold w-40 text-gray-600">Sequence:</span>
+                <span>{sequenceNumber}</span>
               </div>
-            </dl>
-          </>
-        )}
+            )}
+            {timestampIso && (
+              <div className="flex">
+                <span className="font-bold w-40 text-gray-600">Timestamp (UTC):</span>
+                <span className="text-xs">{timestampIso}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Cryptographic Hash – single line */}
+          {hash && (
+            <div className="mt-6">
+              <p className="font-bold text-gray-600 text-sm">
+                Cryptographic Hash (SHA-256):
+              </p>
+              <p className="font-mono text-xs text-gray-500 mt-1 break-all">
+                {hash}
+              </p>
+            </div>
+          )}
+
+          {/* Independent Verification Link – direct Mirror Node URL */}
+          {mirrorNodeUrl && topicId && sequenceNumber && (
+            <div className="mt-6 pt-4 border-t text-center">
+              <p className="font-bold text-xs text-gray-600 mb-1">
+                Verify Independently:
+              </p>
+              <p className="text-xs text-blue-700 break-all">
+                {`${mirrorNodeUrl}/api/v1/topics/${topicId}/messages/${sequenceNumber}`}
+              </p>
+            </div>
+          )}
+
+          {/* Footer */}
+          <p className="text-center text-xs text-gray-400 mt-6">
+            This document serves as a detached proof of existence. The original
+            asset remains unaltered.
+          </p>
+        </div>
       </div>
     </div>
   );

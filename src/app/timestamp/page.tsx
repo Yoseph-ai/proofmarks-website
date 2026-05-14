@@ -2,7 +2,7 @@
 import React, { useCallback, useRef, useState, useEffect } from "react";
 import DragDrop from "../../components/DragDrop";
 import Certificate from "../../components/Certificate";
-import QRCode from "qrcode"; // Added QR code here
+import QRCode from "qrcode";
 
 interface TimestampResult {
   certificateId: string;
@@ -28,19 +28,19 @@ export default function TimestampPage() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<TimestampResult | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
-  const [stampedPdfUrl, setStampedPdfUrl] = useState<string | null>(null);
-  const [stamping, setStamping] = useState(false);
+  const [certificateUrl, setCertificateUrl] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
   const fileBytesRef = useRef<Uint8Array | null>(null);
 
   useEffect(() => {
-    return () => { if (stampedPdfUrl) URL.revokeObjectURL(stampedPdfUrl); };
-  }, [stampedPdfUrl]);
+    return () => { if (certificateUrl) URL.revokeObjectURL(certificateUrl); };
+  }, [certificateUrl]);
 
   const onFile = useCallback(async (file: File) => {
     setError(null);
     setResult(null);
-    if (stampedPdfUrl) URL.revokeObjectURL(stampedPdfUrl);
-    setStampedPdfUrl(null);
+    if (certificateUrl) URL.revokeObjectURL(certificateUrl);
+    setCertificateUrl(null);
     setFileName(file.name);
 
     try {
@@ -62,23 +62,31 @@ export default function TimestampPage() {
       const data = await res.json();
       setLoading(false);
       if (!res.ok) throw new Error(data?.error || "Server error");
-      setResult({ ...data, hash: hex });
+      
+      const finalResult: TimestampResult = { ...data, hash: hex };
+      setResult(finalResult);
 
-      const stampableTypes = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
-      if (!stampableTypes.includes(file.type)) return;
-
-      setStamping(true);
-
-      // FIX: Generate QR code here on the MAIN THREAD where the DOM/Canvas exists
+      // --- GENERATE CERTIFICATE PDF ---
+      setGenerating(true);
       const verificationUrl = `${window.location.origin}/verify/${data.certificateId}`;
       const qrDataUrl = await QRCode.toDataURL(verificationUrl);
 
-      const worker = new Worker(new URL("../workers/stamp.worker.ts", import.meta.url));
+      // Use the NEW certificate worker
+      const worker = new Worker(new URL("../workers/certificate.worker.ts", import.meta.url));
       
       worker.postMessage({
-        fileBytes: fileBytesRef.current!,
-        qrDataUrl, // Send the already generated image string
-        mimeType: file.type,
+        certificateData: {
+          fileName: file.name,
+          hash: hex,
+          timestamp: data.timestamp,
+          certificateId: data.certificateId,
+          sequence: data.sequence || "N/A",
+          network: data.network,
+          algorithm: "SHA-256",
+          mirrorNodeUrl: data.mirrorNodeUrl,
+        },
+        qrDataUrl,
+        logoUrl: data.logoUrl || "", 
       });
 
       worker.onmessage = (e) => {
@@ -87,29 +95,29 @@ export default function TimestampPage() {
         if (success) {
           try {
             const blob = new Blob([bytes as any], { type: (mimeType as string) || "application/pdf" });
-            setStampedPdfUrl(URL.createObjectURL(blob));
+            setCertificateUrl(URL.createObjectURL(blob));
           } catch (blobErr) {
-            setError("Failed to generate the stamped file.");
+            setError("Failed to generate the certificate PDF.");
           }
         } else {
-          setError(`Stamping failed: ${workerError}`);
+          setError(`Certificate generation failed: ${workerError}`);
         }
-        setStamping(false);
+        setGenerating(false);
         worker.terminate();
       };
 
       worker.onerror = () => {
-        setError("A critical error occurred during stamping.");
-        setStamping(false);
+        setError("A critical error occurred during PDF generation.");
+        setGenerating(false);
         worker.terminate();
       };
     } catch (err: any) {
       setHashing(false);
       setLoading(false);
-      setStamping(false);
+      setGenerating(false);
       setError(err?.message || "An unexpected error occurred");
     }
-  }, [stampedPdfUrl]);
+  }, [certificateUrl]);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -119,15 +127,15 @@ export default function TimestampPage() {
         <div className="mt-6">
           {hashing && <div className="flex items-center gap-3 text-sm text-gray-600"><div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full" /> Computing SHA-256...</div>}
           {loading && <div className="text-sm text-gray-600 mt-3">Submitting to Hedera...</div>}
-          {stamping && <div className="text-sm text-gray-600 mt-3">Stamping QR code (background thread)...</div>}
+          {generating && <div className="text-sm text-gray-600 mt-3">Creating official Certificate of Authenticity...</div>}
           {error && <div className="text-sm text-red-600 mt-3 font-medium">{error}</div>}
           {result && (
             <div className="mt-6">
               <Certificate {...result} fileName={fileName || "(unknown)"} />
-              {stampedPdfUrl && (
+              {certificateUrl && (
                 <div className="mt-4">
-                  <a href={stampedPdfUrl} download={`${fileName?.split('.')[0] || "document"}_stamped.${fileName?.split('.').pop() || "pdf"}`} className="inline-block rounded bg-emerald-700 px-4 py-2 text-white text-sm hover:bg-emerald-800 transition">
-                    ⬇ Download QR‑stamped File
+                  <a href={certificateUrl} download={`Certificate_${fileName?.split('.')[0] || "document"}.pdf`} className="inline-block rounded bg-emerald-700 px-4 py-2 text-white text-sm hover:bg-emerald-800 transition">
+                    ⬇ Download Official Certificate
                   </a>
                 </div>
               )}
