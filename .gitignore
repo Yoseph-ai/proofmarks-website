@@ -1,3 +1,64 @@
 ﻿node_modules/
 .env
 .next
+# Existing (keep these)
+node_modules/
+.env
+.next/
+
+# Netlify (add these)
+.netlify/
+.vercel/          # if you still have any Vercel leftovers – remove if not needed
+
+# Environment files (catch local overrides)
+.env*.local
+.env.*.local
+.env.production
+.env.development
+.env.test
+
+# Hedera / private keys (defensive)
+*.pem
+*.key
+*.p12
+*.pfx
+hedera-*key*
+*.secret
+
+# Logs and debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# Runtime / temporary files from document processing
+temp/
+tmp/
+uploads/
+*.tmp
+*.temp
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# OS / IDE junk
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.sublime-*
+
+# Build outputs (already covered .next but add these for safety)
+out/
+build/
+dist/
+
+# Misc
+*.pid
+*.seed
+*.pid.lock
