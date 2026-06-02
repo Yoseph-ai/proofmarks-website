@@ -1,13 +1,10 @@
-// src/app/api/agent/anchor/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { Client, PrivateKey, TopicMessageSubmitTransaction } from '@hashgraph/sdk';
 import 'dotenv/config';
 
-// Mainnet client (same as verify endpoint)
 const operatorId = process.env.MAINNET_OPERATOR_ID!;
 const operatorKey = PrivateKey.fromStringDer(process.env.MAINNET_OPERATOR_KEY!);
 const topicId = process.env.MAINNET_TOPIC_ID!;
-
 const client = Client.forMainnet();
 client.setOperator(operatorId, operatorKey);
 
@@ -36,9 +33,13 @@ export async function POST(req: NextRequest) {
       .setTopicId(topicId)
       .setMessage(message)
       .execute(client);
+
     const receipt = await tx.getReceipt(client);
     const sequenceNumber = receipt.topicSequenceNumber;
-    const consensusTimestamp = receipt.consensusTimestamp?.toString();
+
+    // Fetch the record to get consensusTimestamp
+    const record = await tx.getRecord(client);
+    const consensusTimestamp = record.consensusTimestamp?.toString();
 
     return NextResponse.json({
       success: true,
