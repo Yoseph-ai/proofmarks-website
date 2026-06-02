@@ -1,9 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Client, PrivateKey } from '@hashgraph/sdk';
-import dotenv from 'dotenv';
+import { Client, PrivateKey, TopicMessageQuery } from '@hashgraph/sdk';
+import 'dotenv/config';
 
-dotenv.config();
+// ---------- Helper: extract API key from request ----------
+function getApiKeyFromRequest(req: NextRequest): string | null {
+  // 1. Try Authorization header (Bearer token)
+  const authHeader = req.headers.get('authorization');
+  if (authHeader && authHeader.toLowerCase().startsWith('bearer ')) {
+    return authHeader.slice(7).trim();
+  }
+  // 2. Try x-api-key header
+  const xApiKey = req.headers.get('x-api-key');
+  if (xApiKey) return xApiKey;
+  // 3. Not in headers – will try body later
+  return null;
+}
 
+// ---------- Your existing mainnet client setup ----------
 const operatorId = process.env.MAINNET_OPERATOR_ID!;
 const operatorKey = PrivateKey.fromStringDer(process.env.MAINNET_OPERATOR_KEY!);
 const topicId = process.env.MAINNET_TOPIC_ID!;
@@ -11,10 +24,14 @@ const topicId = process.env.MAINNET_TOPIC_ID!;
 const client = Client.forMainnet();
 client.setOperator(operatorId, operatorKey);
 
-const VALID_API_KEYS = new Set([process.env.AGENT_API_KEY || 'dev-key-123']);
-
-async function verifyHashOnMainnet(hash: string): Promise<{ exists: boolean; timestamp?: string; sequenceNumber?: number }> {
-  const mirrorNodeUrl = "https://mainnet.mirrornode.hedera.com";
+// ---------- Your existing verification logic (unchanged) ----------
+async function verifyHashOnMainnet(hash: string): Promise<{
+  exists: boolean;
+  timestamp?: string;
+  sequenceNumber?: number;
+  certificateId?: string;
+}> {
+  const mirrorNodeUrl = 'https://mainnet.mirrornode.hedera.com';
   let nextLink: string | null = `/api/v1/topics/${topicId}/messages?order=desc&limit=100`;
 
   while (nextLink) {
@@ -28,31 +45,51 @@ async function verifyHashOnMainnet(hash: string): Promise<{ exists: boolean; tim
         const decoded = Buffer.from(msg.message, 'base64').toString();
         const parsed = JSON.parse(decoded);
         if (parsed.hash === hash) {
+          const seq = parseInt(msg.sequence_number, 10);
           return {
             exists: true,
             timestamp: msg.consensus_timestamp,
-            sequenceNumber: parseInt(msg.sequence_number, 10),
+            sequenceNumber: seq,
+            certificateId: `${topicId}@${seq}`,
           };
         }
-      } catch (e) { /* ignore non‑JSON messages */ }
+      } catch {
+        // ignore non‑JSON messages
+      }
     }
     nextLink = data.links?.next || null;
   }
   return { exists: false };
 }
 
+// ---------- POST handler ----------
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { hash, apiKey } = body;
+    // 1. Extract API key (first from headers, then from body)
+    let apiKey = getApiKeyFromRequest(req);
+    let body: any = {};
+
+    if (!apiKey) {
+      // No key in headers, read body to get it
+      body = await req.json();
+      apiKey = body.apiKey;
+    } else {
+      // Already have key from headers, still need body for hash
+      body = await req.json();
+    }
+
+    const { hash } = body;
 
     if (!hash || typeof hash !== 'string') {
       return NextResponse.json({ error: 'Missing or invalid hash' }, { status: 400 });
     }
-    if (!apiKey || !VALID_API_KEYS.has(apiKey)) {
+
+    const expectedKey = process.env.AGENT_API_KEY;
+    if (!apiKey || apiKey !== expectedKey) {
       return NextResponse.json({ error: 'Invalid or missing API key' }, { status: 401 });
     }
 
+    // 2. Perform verification
     const result = await verifyHashOnMainnet(hash);
 
     if (!result.exists) {
@@ -63,7 +100,7 @@ export async function POST(req: NextRequest) {
       valid: true,
       timestamp: result.timestamp,
       sequenceNumber: result.sequenceNumber,
-      certificateId: `${topicId}@${result.sequenceNumber}`,
+      certificateId: result.certificateId,
     });
   } catch (error) {
     console.error('Agent API error:', error);
