@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Client, PrivateKey, TopicMessageSubmitTransaction } from '@hashgraph/sdk';
+import { Ratelimit } from '@upstash/ratelimit';
+import { Redis } from '@upstash/redis';
 import jwt from 'jsonwebtoken';
 import 'dotenv/config';
 
@@ -10,7 +12,13 @@ const topicId = process.env.MAINNET_TOPIC_ID!;
 const client = Client.forMainnet();
 client.setOperator(operatorId, operatorKey);
 
-// Extract API key from request headers (x-api-key or Authorization: Bearer)
+// Upstash rate limiter (100 requests per 60 seconds)
+const ratelimit = new Ratelimit({
+  redis: Redis.fromEnv(),
+  limiter: Ratelimit.slidingWindow(100, '60 s'),
+  analytics: true,
+});
+
 function getApiKey(req: NextRequest): string | null {
   const xKey = req.headers.get('x-api-key');
   if (xKey) return xKey;
@@ -28,21 +36,34 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // 2. Parse input
+    // 2. Rate limit (using API key as identifier)
+    const { success, limit, reset, remaining } = await ratelimit.limit(apiKey);
+    const rateHeaders = {
+      'X-RateLimit-Limit': limit.toString(),
+      'X-RateLimit-Remaining': remaining.toString(),
+      'X-RateLimit-Reset': new Date(reset).toISOString(),
+    };
+    if (!success) {
+      return NextResponse.json(
+        { error: 'Too many requests' },
+        { status: 429, headers: rateHeaders }
+      );
+    }
+
+    // 3. Parse input
     const body = await req.json();
     const { hash } = body;
     if (!hash || typeof hash !== 'string') {
       return NextResponse.json({ error: 'Missing or invalid hash' }, { status: 400 });
     }
 
-    // 3. Submit message to Hedera HCS
+    // 4. Submit to Hedera HCS
     const message = JSON.stringify({ hash, source: 'mcp' });
     const tx = await new TopicMessageSubmitTransaction()
       .setTopicId(topicId)
       .setMessage(message)
       .execute(client);
 
-    // 4. Get receipt and record
     const receipt = await tx.getReceipt(client);
     const record = await tx.getRecord(client);
 
@@ -55,21 +76,23 @@ export async function POST(req: NextRequest) {
       sequenceNumber,
       consensusTimestamp,
       topicId,
-      iat: Math.floor(Date.now() / 1000), // issued at
+      iat: Math.floor(Date.now() / 1000),
     };
     const receiptToken = jwt.sign(receiptPayload, process.env.JWT_SECRET!, { expiresIn: '1y' });
 
-    // 6. Return success with receipt
-    return NextResponse.json({
-      success: true,
-      sequenceNumber,
-      consensusTimestamp,
-      certificateId: `${topicId}@${sequenceNumber}`,
-      receipt: receiptToken,
-    });
+    // 6. Return success
+    return NextResponse.json(
+      {
+        success: true,
+        sequenceNumber,
+        consensusTimestamp,
+        certificateId: `${topicId}@${sequenceNumber}`,
+        receipt: receiptToken,
+      },
+      { headers: rateHeaders }
+    );
   } catch (err: any) {
     console.error('Anchor error:', err);
-    // Sanitise error for client
     const safeMsg = err.message?.includes('INSUFFICIENT_PAYER')
       ? 'Insufficient HBAR – top up operator account'
       : 'Internal server error';
