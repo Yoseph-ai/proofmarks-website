@@ -1,16 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Client, PrivateKey, TopicMessageSubmitTransaction } from '@hashgraph/sdk';
+import jwt from 'jsonwebtoken';
 import 'dotenv/config';
 
-// Hedera mainnet setup
+// Hedera mainnet client
 const operatorId = process.env.MAINNET_OPERATOR_ID!;
 const operatorKey = PrivateKey.fromStringDer(process.env.MAINNET_OPERATOR_KEY!);
 const topicId = process.env.MAINNET_TOPIC_ID!;
-
 const client = Client.forMainnet();
 client.setOperator(operatorId, operatorKey);
 
-// Extract API key from headers (x-api-key or Authorization)
+// Extract API key from request headers (x-api-key or Authorization: Bearer)
 function getApiKey(req: NextRequest): string | null {
   const xKey = req.headers.get('x-api-key');
   if (xKey) return xKey;
@@ -21,40 +21,55 @@ function getApiKey(req: NextRequest): string | null {
 
 export async function POST(req: NextRequest) {
   try {
+    // 1. Authenticate
     const apiKey = getApiKey(req);
     const expectedKey = process.env.AGENT_API_KEY;
     if (!apiKey || apiKey !== expectedKey) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // 2. Parse input
     const body = await req.json();
     const { hash } = body;
     if (!hash || typeof hash !== 'string') {
       return NextResponse.json({ error: 'Missing or invalid hash' }, { status: 400 });
     }
 
-    // Submit message to HCS topic
+    // 3. Submit message to Hedera HCS
     const message = JSON.stringify({ hash, source: 'mcp' });
     const tx = await new TopicMessageSubmitTransaction()
       .setTopicId(topicId)
       .setMessage(message)
       .execute(client);
 
+    // 4. Get receipt and record
     const receipt = await tx.getReceipt(client);
     const record = await tx.getRecord(client);
 
-    // Convert Long object to plain number
     const sequenceNumber = Number(receipt.topicSequenceNumber);
     const consensusTimestamp = record.consensusTimestamp?.toString();
 
+    // 5. Generate JWT receipt
+    const receiptPayload = {
+      hash,
+      sequenceNumber,
+      consensusTimestamp,
+      topicId,
+      iat: Math.floor(Date.now() / 1000), // issued at
+    };
+    const receiptToken = jwt.sign(receiptPayload, process.env.JWT_SECRET!, { expiresIn: '1y' });
+
+    // 6. Return success with receipt
     return NextResponse.json({
       success: true,
       sequenceNumber,
       consensusTimestamp,
       certificateId: `${topicId}@${sequenceNumber}`,
+      receipt: receiptToken,
     });
   } catch (err: any) {
     console.error('Anchor error:', err);
+    // Sanitise error for client
     const safeMsg = err.message?.includes('INSUFFICIENT_PAYER')
       ? 'Insufficient HBAR – top up operator account'
       : 'Internal server error';
