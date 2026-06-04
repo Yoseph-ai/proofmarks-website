@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Client, PrivateKey, TopicMessageSubmitTransaction } from '@hashgraph/sdk';
-import { Ratelimit } from '@upstash/ratelimit';
-import { Redis } from '@upstash/redis';
 import jwt from 'jsonwebtoken';
 import 'dotenv/config';
 
@@ -12,12 +10,28 @@ const topicId = process.env.MAINNET_TOPIC_ID!;
 const client = Client.forMainnet();
 client.setOperator(operatorId, operatorKey);
 
-// Upstash rate limiter (100 requests per 60 seconds)
-const ratelimit = new Ratelimit({
-  redis: Redis.fromEnv(),
-  limiter: Ratelimit.slidingWindow(100, '60 s'),
-  analytics: true,
-});
+// Lazy‑initialized rate limiter (to avoid build‑time errors)
+let rateLimiter: any = null;
+
+async function getRateLimiter() {
+  if (rateLimiter) return rateLimiter;
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) return null;
+  try {
+    const { Ratelimit } = await import('@upstash/ratelimit');
+    const { Redis } = await import('@upstash/redis');
+    rateLimiter = new Ratelimit({
+      redis: Redis.fromEnv(),
+      limiter: Ratelimit.slidingWindow(100, '60 s'),
+      analytics: true,
+    });
+    return rateLimiter;
+  } catch (err) {
+    console.error('Failed to initialize rate limiter:', err);
+    return null;
+  }
+}
 
 function getApiKey(req: NextRequest): string | null {
   const xKey = req.headers.get('x-api-key');
@@ -36,18 +50,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // 2. Rate limit (using API key as identifier)
-    const { success, limit, reset, remaining } = await ratelimit.limit(apiKey);
-    const rateHeaders = {
-      'X-RateLimit-Limit': limit.toString(),
-      'X-RateLimit-Remaining': remaining.toString(),
-      'X-RateLimit-Reset': new Date(reset).toISOString(),
-    };
-    if (!success) {
-      return NextResponse.json(
-        { error: 'Too many requests' },
-        { status: 429, headers: rateHeaders }
-      );
+    // 2. Rate limiting (if available)
+    let rateHeaders: Record<string, string> = {};
+    const limiter = await getRateLimiter();
+    if (limiter) {
+      const { success, limit, reset, remaining } = await limiter.limit(apiKey);
+      rateHeaders = {
+        'X-RateLimit-Limit': limit.toString(),
+        'X-RateLimit-Remaining': remaining.toString(),
+        'X-RateLimit-Reset': new Date(reset).toISOString(),
+      };
+      if (!success) {
+        return NextResponse.json(
+          { error: 'Too many requests' },
+          { status: 429, headers: rateHeaders }
+        );
+      }
     }
 
     // 3. Parse input
@@ -80,7 +98,7 @@ export async function POST(req: NextRequest) {
     };
     const receiptToken = jwt.sign(receiptPayload, process.env.JWT_SECRET!, { expiresIn: '1y' });
 
-    // 6. Return success
+    // 6. Return response
     return NextResponse.json(
       {
         success: true,
