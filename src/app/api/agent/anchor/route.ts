@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Client, PrivateKey, TopicMessageSubmitTransaction } from '@hashgraph/sdk';
 import jwt from 'jsonwebtoken';
+import { getRateLimiter } from '../../../../lib/rateLimit';
 import 'dotenv/config';
 
 const operatorId = process.env.MAINNET_OPERATOR_ID!;
@@ -8,29 +9,6 @@ const operatorKey = PrivateKey.fromStringDer(process.env.MAINNET_OPERATOR_KEY!);
 const topicId = process.env.MAINNET_TOPIC_ID!;
 const client = Client.forMainnet();
 client.setOperator(operatorId, operatorKey);
-
-// Lazy‑initialized rate limiter
-let rateLimiter: any = null;
-
-async function getRateLimiter() {
-  if (rateLimiter) return rateLimiter;
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (!url || !token) return null;
-  try {
-    const { Ratelimit } = await import('@upstash/ratelimit');
-    const { Redis } = await import('@upstash/redis');
-    rateLimiter = new Ratelimit({
-      redis: Redis.fromEnv(),
-      limiter: Ratelimit.slidingWindow(100, '60 s'),
-      analytics: true,
-    });
-    return rateLimiter;
-  } catch (err) {
-    console.error('Failed to initialize rate limiter:', err);
-    return null;
-  }
-}
 
 function getApiKey(req: NextRequest): string | null {
   const xKey = req.headers.get('x-api-key');
@@ -48,9 +26,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Rate limiting
+    // Rate limiting (if configured)
     let rateHeaders: Record<string, string> = {};
-    const limiter = await getRateLimiter();
+    const limiter = getRateLimiter();
     if (limiter) {
       const { success, limit, reset, remaining } = await limiter.limit(apiKey);
       rateHeaders = {
@@ -83,7 +61,13 @@ export async function POST(req: NextRequest) {
     const sequenceNumber = Number(receipt.topicSequenceNumber);
     const consensusTimestamp = record.consensusTimestamp?.toString();
 
-    const receiptPayload = { hash, sequenceNumber, consensusTimestamp, topicId, iat: Math.floor(Date.now() / 1000) };
+    const receiptPayload = {
+      hash,
+      sequenceNumber,
+      consensusTimestamp,
+      topicId,
+      iat: Math.floor(Date.now() / 1000),
+    };
     const receiptToken = jwt.sign(receiptPayload, process.env.JWT_SECRET!, { expiresIn: '1y' });
 
     return NextResponse.json(
