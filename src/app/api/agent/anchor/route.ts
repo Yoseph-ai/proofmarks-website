@@ -3,14 +3,13 @@ import { Client, PrivateKey, TopicMessageSubmitTransaction } from '@hashgraph/sd
 import jwt from 'jsonwebtoken';
 import 'dotenv/config';
 
-// Hedera mainnet client
 const operatorId = process.env.MAINNET_OPERATOR_ID!;
 const operatorKey = PrivateKey.fromStringDer(process.env.MAINNET_OPERATOR_KEY!);
 const topicId = process.env.MAINNET_TOPIC_ID!;
 const client = Client.forMainnet();
 client.setOperator(operatorId, operatorKey);
 
-// Lazy‑initialized rate limiter (to avoid build‑time errors)
+// Lazy‑initialized rate limiter
 let rateLimiter: any = null;
 
 async function getRateLimiter() {
@@ -43,14 +42,13 @@ function getApiKey(req: NextRequest): string | null {
 
 export async function POST(req: NextRequest) {
   try {
-    // 1. Authenticate
     const apiKey = getApiKey(req);
     const expectedKey = process.env.AGENT_API_KEY;
     if (!apiKey || apiKey !== expectedKey) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // 2. Rate limiting (if available)
+    // Rate limiting
     let rateHeaders: Record<string, string> = {};
     const limiter = await getRateLimiter();
     if (limiter) {
@@ -68,14 +66,12 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 3. Parse input
     const body = await req.json();
     const { hash } = body;
     if (!hash || typeof hash !== 'string') {
       return NextResponse.json({ error: 'Missing or invalid hash' }, { status: 400 });
     }
 
-    // 4. Submit to Hedera HCS
     const message = JSON.stringify({ hash, source: 'mcp' });
     const tx = await new TopicMessageSubmitTransaction()
       .setTopicId(topicId)
@@ -84,21 +80,12 @@ export async function POST(req: NextRequest) {
 
     const receipt = await tx.getReceipt(client);
     const record = await tx.getRecord(client);
-
     const sequenceNumber = Number(receipt.topicSequenceNumber);
     const consensusTimestamp = record.consensusTimestamp?.toString();
 
-    // 5. Generate JWT receipt
-    const receiptPayload = {
-      hash,
-      sequenceNumber,
-      consensusTimestamp,
-      topicId,
-      iat: Math.floor(Date.now() / 1000),
-    };
+    const receiptPayload = { hash, sequenceNumber, consensusTimestamp, topicId, iat: Math.floor(Date.now() / 1000) };
     const receiptToken = jwt.sign(receiptPayload, process.env.JWT_SECRET!, { expiresIn: '1y' });
 
-    // 6. Return response
     return NextResponse.json(
       {
         success: true,
