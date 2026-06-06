@@ -1,5 +1,5 @@
 import { Ratelimit } from '@upstash/ratelimit';
-import { kv } from '@vercel/kv';
+import { Redis } from '@upstash/redis';
 
 let limiter: Ratelimit | null = null;
 
@@ -11,9 +11,14 @@ export function getRateLimiter(): Ratelimit | null {
     return null;
   }
 
+  const redis = new Redis({
+    url:   process.env.KV_REST_API_URL,
+    token: process.env.KV_REST_API_TOKEN,
+  });
+
   limiter = new Ratelimit({
-    redis: kv,
-    limiter: Ratelimit.slidingWindow(10, '1 m'), // 10 requests per minute per key
+    redis,
+    limiter: Ratelimit.slidingWindow(10, '1 m'),
     analytics: true,
   });
 
