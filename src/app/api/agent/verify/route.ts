@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getRateLimiter } from '../../lib/rateLimit';
+import { getRateLimiter } from '@/lib/rateLimit';   // <-- corrected
 
 const HASH_REGEX = /^[a-f0-9]{64}$/i;
 
@@ -86,7 +86,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ---------- RATE LIMITING with console logs ----------
     let rateHeaders: Record<string, string> = {};
     const limiter = getRateLimiter();
     console.log('[RateLimit] Limiter present:', !!limiter);
@@ -108,7 +107,6 @@ export async function POST(req: NextRequest) {
         );
       }
     }
-    // ---------- END RATE LIMITING ----------
 
     const result = await verifyHashOnMainnet(hash);
 
