@@ -1,5 +1,5 @@
 // src/app/api/verify/route.js
-import { verifyHash } from '../../../lib/hederaService.js';
+import { verifyHash } from '@/lib/hederaService';
 
 export async function POST(request) {
     try {
