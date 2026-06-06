@@ -1,34 +1,49 @@
 import { Ratelimit } from '@upstash/ratelimit';
-import { Redis } from '@upstash/redis';
+import { kv } from '@vercel/kv';
 
-let limiter: Ratelimit | null = null;
+let rateLimiter: Ratelimit | null = null;
+let anchorLimiter: Ratelimit | null = null;
 
+// For the verify endpoint (100 requests per minute)
 export function getRateLimiter(): Ratelimit | null {
-  if (limiter) return limiter;
-
-  const url   = process.env.KV_REST_API_URL;
+  if (rateLimiter) return rateLimiter;
+  const url = process.env.KV_REST_API_URL;
   const token = process.env.KV_REST_API_TOKEN;
-
-  console.log('[RateLimit] URL present:', !!url);
-  console.log('[RateLimit] Token present:', !!token);
-
   if (!url || !token) {
-    console.warn('[RateLimit] Not configured — KV env vars missing.');
+    console.warn('Rate limiting disabled: missing Vercel KV environment variables');
     return null;
   }
-
   try {
-    const redis = new Redis({ url, token });
-    limiter = new Ratelimit({
-      redis,
-      limiter: Ratelimit.slidingWindow(10, '1 m'),
+    rateLimiter = new Ratelimit({
+      redis: kv,
+      limiter: Ratelimit.slidingWindow(100, '60 s'),
       analytics: true,
     });
-    console.log('[RateLimit] Initialized successfully');
+    return rateLimiter;
   } catch (err) {
-    console.error('[RateLimit] Init failed:', err);
+    console.error('Failed to initialize rate limiter:', err);
     return null;
   }
+}
 
-  return limiter;
+// For the anchor endpoint (5 requests per minute, stricter)
+export function getAnchorRateLimiter(): Ratelimit | null {
+  if (anchorLimiter) return anchorLimiter;
+  const url = process.env.KV_REST_API_URL;
+  const token = process.env.KV_REST_API_TOKEN;
+  if (!url || !token) {
+    console.warn('Anchor rate limiting disabled: missing Vercel KV environment variables');
+    return null;
+  }
+  try {
+    anchorLimiter = new Ratelimit({
+      redis: kv,
+      limiter: Ratelimit.slidingWindow(5, '60 s'),
+      analytics: true,
+    });
+    return anchorLimiter;
+  } catch (err) {
+    console.error('Failed to initialize anchor rate limiter:', err);
+    return null;
+  }
 }
