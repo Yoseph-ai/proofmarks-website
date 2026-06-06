@@ -38,7 +38,7 @@ export function getAnchorRateLimiter(): Ratelimit | null {
   try {
     anchorLimiter = new Ratelimit({
       redis: kv,
-      limiter: Ratelimit.slidingWindow(5, '60 s'),
+      limiter: Ratelimit.slidingWindow(10, '60 s'),
       analytics: true,
     });
     return anchorLimiter;
