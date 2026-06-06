@@ -6,21 +6,29 @@ let limiter: Ratelimit | null = null;
 export function getRateLimiter(): Ratelimit | null {
   if (limiter) return limiter;
 
-  if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) {
-    console.warn('Rate limiter not configured — KV env vars missing.');
+  const url   = process.env.KV_REST_API_URL;
+  const token = process.env.KV_REST_API_TOKEN;
+
+  console.log('[RateLimit] URL present:', !!url);
+  console.log('[RateLimit] Token present:', !!token);
+
+  if (!url || !token) {
+    console.warn('[RateLimit] Not configured — KV env vars missing.');
     return null;
   }
 
-  const redis = new Redis({
-    url:   process.env.KV_REST_API_URL,
-    token: process.env.KV_REST_API_TOKEN,
-  });
-
-  limiter = new Ratelimit({
-    redis,
-    limiter: Ratelimit.slidingWindow(10, '1 m'),
-    analytics: true,
-  });
+  try {
+    const redis = new Redis({ url, token });
+    limiter = new Ratelimit({
+      redis,
+      limiter: Ratelimit.slidingWindow(10, '1 m'),
+      analytics: true,
+    });
+    console.log('[RateLimit] Initialized successfully');
+  } catch (err) {
+    console.error('[RateLimit] Init failed:', err);
+    return null;
+  }
 
   return limiter;
 }
