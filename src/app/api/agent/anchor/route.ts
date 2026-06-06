@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Client, PrivateKey, TopicMessageSubmitTransaction } from '@hashgraph/sdk';
 import jwt from 'jsonwebtoken';
-import { getRateLimiter } from '../../../../lib/rateLimit';
+import { getAnchorRateLimiter } from '@/lib/rateLimit';   // <-- real rate limiter for anchor
 
+// ---------- Helper: Extract API key ----------
 function getApiKey(req: NextRequest): string | null {
   const xKey = req.headers.get('x-api-key');
   if (xKey) return xKey;
@@ -11,6 +12,7 @@ function getApiKey(req: NextRequest): string | null {
   return null;
 }
 
+// ---------- Hedera client setup ----------
 function getHederaClient(): { client: Client; topicId: string } {
   const operatorId = process.env.MAINNET_OPERATOR_ID;
   const operatorKey = process.env.MAINNET_OPERATOR_KEY;
@@ -25,18 +27,24 @@ function getHederaClient(): { client: Client; topicId: string } {
   return { client, topicId };
 }
 
+// ---------- POST handler ----------
 export async function POST(req: NextRequest) {
   try {
+    // 1. Authenticate
     const apiKey = getApiKey(req);
     const expectedKey = process.env.AGENT_API_KEY;
     if (!apiKey || apiKey !== expectedKey) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // ---------- RATE LIMITING (stricter: 5 per minute) ----------
     let rateHeaders: Record<string, string> = {};
-    const limiter = getRateLimiter();
+    const limiter = getAnchorRateLimiter();
+    console.log('[Anchor RateLimit] Limiter present:', !!limiter);
     if (limiter) {
-      const { success, limit, reset, remaining } = await limiter.limit(apiKey);
+      const identifier = apiKey; // use API key as identifier
+      const { success, limit, remaining, reset } = await limiter.limit(identifier);
+      console.log('[Anchor RateLimit] Result:', { success, limit, remaining });
       rateHeaders = {
         'X-RateLimit-Limit': limit.toString(),
         'X-RateLimit-Remaining': remaining.toString(),
@@ -44,20 +52,22 @@ export async function POST(req: NextRequest) {
       };
       if (!success) {
         return NextResponse.json(
-          { error: 'Too many requests' },
+          { error: 'Too many anchor requests. Slow down.' },
           { status: 429, headers: rateHeaders }
         );
       }
     }
+    // ---------- END RATE LIMITING ----------
 
+    // 2. Parse request body
     const body = await req.json();
     const { hash } = body;
     if (!hash || typeof hash !== 'string') {
       return NextResponse.json({ error: 'Missing or invalid hash' }, { status: 400 });
     }
 
+    // 3. Submit to Hedera
     const { client, topicId } = getHederaClient();
-
     const message = JSON.stringify({ hash, source: 'mcp' });
     const tx = await new TopicMessageSubmitTransaction()
       .setTopicId(topicId)
@@ -69,6 +79,7 @@ export async function POST(req: NextRequest) {
     const sequenceNumber = Number(receipt.topicSequenceNumber);
     const consensusTimestamp = record.consensusTimestamp?.toString();
 
+    // 4. Generate JWT receipt
     const receiptPayload = {
       hash,
       sequenceNumber,
@@ -78,6 +89,7 @@ export async function POST(req: NextRequest) {
     };
     const receiptToken = jwt.sign(receiptPayload, process.env.JWT_SECRET!, { expiresIn: '1y' });
 
+    // 5. Return success with rate limit headers
     return NextResponse.json(
       {
         success: true,
@@ -86,7 +98,7 @@ export async function POST(req: NextRequest) {
         certificateId: `${topicId}@${sequenceNumber}`,
         receipt: receiptToken,
       },
-      { headers: rateHeaders }
+      { status: 200, headers: rateHeaders }
     );
   } catch (err: unknown) {
     console.error('Anchor error:', err);
