@@ -5,15 +5,17 @@ let rateLimiter: Ratelimit | null = null;
 
 export function getRateLimiter(): Ratelimit | null {
   if (rateLimiter) return rateLimiter;
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  const url = process.env.KV_REST_API_URL;
+  const token = process.env.KV_REST_API_TOKEN;
   if (!url || !token) {
-    console.warn('Rate limiting disabled: missing Upstash environment variables');
+    console.warn('Rate limiting disabled: missing Vercel KV env vars');
     return null;
   }
   try {
+    const redisClient = Redis.fromEnv();
+
     rateLimiter = new Ratelimit({
-      redis: Redis.fromEnv(),
+      redis: redisClient,
       limiter: Ratelimit.slidingWindow(100, '60 s'),
       analytics: true,
     });

@@ -2,13 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Client, PrivateKey, TopicMessageSubmitTransaction } from '@hashgraph/sdk';
 import jwt from 'jsonwebtoken';
 import { getRateLimiter } from '../../../../lib/rateLimit';
-import 'dotenv/config';
-
-const operatorId = process.env.MAINNET_OPERATOR_ID!;
-const operatorKey = PrivateKey.fromStringDer(process.env.MAINNET_OPERATOR_KEY!);
-const topicId = process.env.MAINNET_TOPIC_ID!;
-const client = Client.forMainnet();
-client.setOperator(operatorId, operatorKey);
 
 function getApiKey(req: NextRequest): string | null {
   const xKey = req.headers.get('x-api-key');
@@ -16,6 +9,20 @@ function getApiKey(req: NextRequest): string | null {
   const auth = req.headers.get('authorization');
   if (auth?.toLowerCase().startsWith('bearer ')) return auth.slice(7).trim();
   return null;
+}
+
+function getHederaClient(): { client: Client; topicId: string } {
+  const operatorId = process.env.MAINNET_OPERATOR_ID;
+  const operatorKey = process.env.MAINNET_OPERATOR_KEY;
+  const topicId = process.env.MAINNET_TOPIC_ID;
+
+  if (!operatorId || !operatorKey || !topicId) {
+    throw new Error('Hedera environment not configured.');
+  }
+
+  const client = Client.forMainnet();
+  client.setOperator(operatorId, PrivateKey.fromStringDer(operatorKey));
+  return { client, topicId };
 }
 
 export async function POST(req: NextRequest) {
@@ -26,7 +33,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Rate limiting (if configured)
     let rateHeaders: Record<string, string> = {};
     const limiter = getRateLimiter();
     if (limiter) {
@@ -49,6 +55,8 @@ export async function POST(req: NextRequest) {
     if (!hash || typeof hash !== 'string') {
       return NextResponse.json({ error: 'Missing or invalid hash' }, { status: 400 });
     }
+
+    const { client, topicId } = getHederaClient();
 
     const message = JSON.stringify({ hash, source: 'mcp' });
     const tx = await new TopicMessageSubmitTransaction()
@@ -80,9 +88,10 @@ export async function POST(req: NextRequest) {
       },
       { headers: rateHeaders }
     );
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Anchor error:', err);
-    const safeMsg = err.message?.includes('INSUFFICIENT_PAYER')
+    const message = err instanceof Error ? err.message : '';
+    const safeMsg = message.includes('INSUFFICIENT_PAYER')
       ? 'Insufficient HBAR – top up operator account'
       : 'Internal server error';
     return NextResponse.json({ error: safeMsg }, { status: 500 });
