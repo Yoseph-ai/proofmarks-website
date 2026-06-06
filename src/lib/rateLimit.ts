@@ -1,27 +1,21 @@
 import { Ratelimit } from '@upstash/ratelimit';
-import { Redis } from '@upstash/redis';
+import { kv } from '@vercel/kv';
 
-let rateLimiter: Ratelimit | null = null;
+let limiter: Ratelimit | null = null;
 
 export function getRateLimiter(): Ratelimit | null {
-  if (rateLimiter) return rateLimiter;
-  const url = process.env.KV_REST_API_URL;
-  const token = process.env.KV_REST_API_TOKEN;
-  if (!url || !token) {
-    console.warn('Rate limiting disabled: missing Vercel KV env vars');
-    return null;
-  }
-  try {
-    const redisClient = Redis.fromEnv();
+  if (limiter) return limiter;
 
-    rateLimiter = new Ratelimit({
-      redis: redisClient,
-      limiter: Ratelimit.slidingWindow(100, '60 s'),
-      analytics: true,
-    });
-    return rateLimiter;
-  } catch (err) {
-    console.error('Failed to initialize rate limiter:', err);
+  if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) {
+    console.warn('Rate limiter not configured — KV env vars missing.');
     return null;
   }
+
+  limiter = new Ratelimit({
+    redis: kv,
+    limiter: Ratelimit.slidingWindow(10, '1 m'), // 10 requests per minute per key
+    analytics: true,
+  });
+
+  return limiter;
 }
