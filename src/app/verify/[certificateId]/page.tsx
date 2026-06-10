@@ -68,7 +68,7 @@ export default function CertificateVerificationPage() {
           <div className="flex justify-center mb-6">
             <img
               src="/yes-logo.png"
-              alt="Hedera Trust Anchor"
+              alt="Proofmarks"
               className="h-16"
             />
           </div>

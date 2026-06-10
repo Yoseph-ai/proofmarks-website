@@ -103,7 +103,7 @@ export default function VerifyPage() {
                 {result.exists ? (
                   <div className="p-6 rounded-lg bg-emerald-50 border-2 border-emerald-500 text-emerald-900 shadow-inner">
                     <div className="flex flex-col items-center text-center mb-6">
-                      <img src="/yes-logo.png" alt="YES Financial Solutions" className="h-16 mb-4" />
+                      <img src="/lock.svg" alt="Proofmarks" className="h-8 mb-4" />
                       <div className="text-2xl font-bold flex items-center gap-2">
                         <span>✅</span> AUTHENTICITY VERIFIED
                       </div>

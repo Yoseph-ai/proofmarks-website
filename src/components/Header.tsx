@@ -1,6 +1,5 @@
 "use client";
 import Link from "next/link";
-import Image from "next/image";
 import Badge from "./ui/Badge";
 
 export default function Header() {
@@ -8,19 +7,14 @@ export default function Header() {
     <header className="w-full py-6 border-b bg-white/60 backdrop-blur-sm">
       <div className="max-w-5xl mx-auto px-4 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-3">
-          {/* Logo — using your "YES FINANCIAL SOLUTIONS" image */}
-          <div className="relative h-16 w-16 flex-shrink-0">
-            <Image
-              src="/yes-logo.png"
-              alt="YES Financial Solutions"
-              fill
-              className="object-contain"
-              priority
+          {/* Lock SVG + Proofmarks text */}
+          <div className="flex items-center gap-2">
+            <img
+              src="/lock.svg"
+              alt="Proofmarks lock icon"
+              className="h-8 w-8"
             />
-          </div>
-          <div>
-            <div className="text-2xl font-semibold">Hedera Trust Anchor</div>
-            <div className="text-sm text-gray-500">Immutable proof for digital assets</div>
+            <span className="text-2xl font-bold">Proofmarks</span>
           </div>
         </Link>
 
