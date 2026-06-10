@@ -1,58 +1,68 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+const TOPIC_ID = '0.0.8626999';
+const MIRROR_NODE_URL = 'https://testnet.mirrornode.hedera.com';
+
+async function verifyHashOnTestnet(hash: string) {
+  let nextLink: string | null = `/api/v1/topics/${TOPIC_ID}/messages?order=desc&limit=100`;
+
+  while (nextLink) {
+    const url = `${MIRROR_NODE_URL}${nextLink}`;
+    const res = await fetch(url);
+    if (!res.ok) break;
+    const data = await res.json();
+    const messages = data.messages || [];
+
+    for (const msg of messages) {
+      try {
+        const decoded = Buffer.from(msg.message, 'base64').toString('utf-8');
+        let parsed;
+        try {
+          parsed = JSON.parse(decoded);
+        } catch {
+          parsed = { hash: decoded };
+        }
+        if (parsed.hash === hash) {
+          return {
+            exists: true,
+            timestamp: msg.consensus_timestamp,
+            sequenceNumber: parseInt(msg.sequence_number, 10),
+            certificateId: `${TOPIC_ID}@${msg.sequence_number}`,
+          };
+        }
+      } catch {
+        // skip malformed messages
+      }
+    }
+    nextLink = data.links?.next || null;
+  }
+  return { exists: false };
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { hash } = body;
-    if (!hash) {
-      return NextResponse.json({ error: 'Missing hash' }, { status: 400 });
+    if (!hash || typeof hash !== 'string') {
+      return NextResponse.json({ error: 'Missing or invalid hash' }, { status: 400 });
     }
 
-    const apiKey = process.env.AGENT_API_KEY;
-    if (!apiKey) {
-      console.error('[proxy] AGENT_API_KEY not set');
-      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
-    }
+    const result = await verifyHashOnTestnet(hash);
 
-    // Build absolute URL to agent endpoint
-    const baseUrl = process.env.VERCEL_URL 
-      ? `https://${process.env.VERCEL_URL}`
-      : 'http://localhost:3000';
-    const agentUrl = `${baseUrl}/api/agent/verify`;
-
-    console.log('[proxy] Calling agent:', agentUrl);
-
-    const response = await fetch(agentUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-      },
-      body: JSON.stringify({ hash }),
-    });
-
-    const data = await response.json();
-    console.log('[proxy] Agent response status:', response.status, 'data:', data);
-
-    if (!response.ok) {
-      return NextResponse.json({ error: data.error || 'Verification failed' }, { status: response.status });
-    }
-
-    if (data.valid) {
-      return NextResponse.json({
-        exists: true,
-        timestamp: data.timestamp,
-        sequenceNumber: data.sequenceNumber,
-        certificateId: data.certificateId,
-        network: 'testnet',
-        mirrorNodeUrl: 'https://testnet.mirrornode.hedera.com',
-        transactionId: data.transactionId || undefined,
-      });
-    } else {
+    if (!result.exists) {
       return NextResponse.json({ exists: false });
     }
-  } catch (error: any) {
-    console.error('[proxy] Fatal error:', error);
-    return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
+
+    return NextResponse.json({
+      exists: true,
+      timestamp: result.timestamp,
+      sequenceNumber: result.sequenceNumber,
+      certificateId: result.certificateId,
+      network: 'testnet',
+      mirrorNodeUrl: MIRROR_NODE_URL,
+    });
+  } catch (error) {
+    console.error('Direct verify error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
