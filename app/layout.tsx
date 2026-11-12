@@ -1,0 +1,16 @@
+﻿export const metadata = {
+  title: 'Proofmarks',
+  description: 'Verify and timestamp documents on Hedera',
+}
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  return (
+    <html lang="en">
+      <body>{children}</body>
+    </html>
+  )
+}
