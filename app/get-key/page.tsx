@@ -1,4 +1,4 @@
-﻿import GetApiKey from "@/components/get-api-key";
+﻿import GetApiKey from "../../components/get-api-key";
 
 export default function GetKeyPage() {
   return (
