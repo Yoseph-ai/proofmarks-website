@@ -1,4 +1,6 @@
-﻿export const metadata = {
+﻿import "./globals.css";
+
+export const metadata = {
   title: 'Proofmarks',
   description: 'Verify and timestamp documents on Hedera',
 }
